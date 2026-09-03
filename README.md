@@ -13,7 +13,7 @@ pip install -r requirements.txt
 ## Chạy
 
 ```bash
-python main.py                                   # quét toàn bộ SYMBOLS trong config.py
+python main.py                                   # quét toàn bộ cặp spot USDT đang TRADING trên Binance
 python main.py --symbols BTC/USDT,ETH/USDT,SOL/USDT --top 5
 python main.py --save                             # lưu breakdown đầy đủ ra output/result_*.json
 python main.py --no-ws                             # tắt WebSocket, chạy nhanh hơn (REST-only)
@@ -53,9 +53,18 @@ export TELEGRAM_BOT_TOKEN="123456789:AA..."
 export TELEGRAM_CHAT_ID="987654321"
 python main.py --telegram
 
+# Windows PowerShell:
+$env:TELEGRAM_BOT_TOKEN="123456789:AA..."
+$env:TELEGRAM_CHAT_ID="987654321"
+python main.py --telegram --loop 15
+
 # Cách 2 — truyền thẳng qua CLI
 python main.py --telegram --telegram-token "123456789:AA..." --telegram-chat-id "987654321"
 ```
+
+Mặc định chương trình discovery toàn bộ cặp spot USDT đang giao dịch trên Binance, sau đó
+gọi các adapter của những sàn được bật để đối chiếu. Cặp không tồn tại trên một sàn sẽ được
+bỏ qua ở sàn đó. Dùng `--symbols ...` để quét thủ công một nhóm nhỏ khi test.
 
 Mặc định chỉ gửi coin có nhãn **PUMP/DUMP** (không spam NEUTRAL) và **độ tin cậy >= 50%**
 (`config.TELEGRAM_ONLY_ACTIONABLE`, `config.TELEGRAM_MIN_CONFIDENCE`) — chỉnh trong `config.py`.

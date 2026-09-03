@@ -8,6 +8,22 @@ FUT_BASE = "https://fapi.binance.com"
 class BinanceAdapter(ExchangeAdapter):
     name = "binance"
 
+    def get_trading_usdt_symbols(self) -> list[str]:
+        """Return every active Binance spot pair quoted in USDT."""
+        data = self._get(f"{SPOT_BASE}/api/v3/exchangeInfo")
+        if not isinstance(data, dict):
+            return []
+
+        symbols = []
+        for item in data.get("symbols", []):
+            if (
+                item.get("status") == "TRADING"
+                and item.get("isSpotTradingAllowed", True)
+                and item.get("quoteAsset") == "USDT"
+            ):
+                symbols.append(f"{item['baseAsset']}/USDT")
+        return sorted(set(symbols))
+
     def to_exchange_symbol(self, symbol: str) -> str:
         base, quote = symbol.split("/")
         return f"{base}{quote}"

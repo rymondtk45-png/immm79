@@ -19,7 +19,7 @@ from datetime import datetime
 from tabulate import tabulate
 
 import config
-from core.collector import collect_all
+from core.collector import collect_all, discover_symbols
 from core.signals import compute_all_signals
 from core.scorer import build_ranking
 from core.notifier import send_alerts
@@ -53,13 +53,8 @@ def parse_args():
 
 def run():
     args = parse_args()
-    symbols = args.symbols.split(",") if args.symbols else config.SYMBOLS
-    symbols = [s.strip() for s in symbols if s.strip()]
-
-    if args.no_ws:
-        config.WS_ENABLED = False
-    if args.ws_window is not None:
-        config.WS_WINDOW_SEC = args.ws_window
+    symbols = ([s.strip() for s in args.symbols.split(",") if s.strip()]
+               if args.symbols else discover_symbols())
 
     if args.no_ws:
         config.WS_ENABLED = False

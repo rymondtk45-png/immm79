@@ -6,6 +6,7 @@ Lỗi ở 1 sàn/1 coin không làm sập cả pipeline — chỉ log và bỏ q
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import config
+from exchanges.binance import BinanceAdapter
 from exchanges import ADAPTER_REGISTRY
 from core.ws_collector import collect_ws_all_sync
 
@@ -30,10 +31,25 @@ def _fetch_one(exchange_name: str, adapter, symbol: str) -> dict:
     return out
 
 
-def collect_all(symbols: list[str]) -> dict:
+def discover_symbols() -> list[str]:
+    """Discover the Binance spot USDT universe, with config as a fallback."""
+    if not config.DISCOVER_BINANCE_SYMBOLS or not config.ENABLED_EXCHANGES.get("binance", False):
+        return list(config.SYMBOLS)
+
+    symbols = BinanceAdapter().get_trading_usdt_symbols()
+    if symbols:
+        print(f"==> Binance discovery: tìm thấy {len(symbols)} cặp spot USDT đang giao dịch")
+        return symbols
+
+    print("==> Binance discovery thất bại, dùng SYMBOLS trong config.py")
+    return list(config.SYMBOLS)
+
+
+def collect_all(symbols: list[str] | None = None) -> dict:
     """
     Trả về: { symbol: { exchange_name: {klines, orderbook, ticker, funding, oi, long_short, ok} } }
     """
+    symbols = symbols if symbols is not None else discover_symbols()
     adapters = {
         name: cls() for name, cls in ADAPTER_REGISTRY.items()
         if config.ENABLED_EXCHANGES.get(name, False)

@@ -4,13 +4,17 @@ Cấu hình trung tâm cho hệ thống tín hiệu multi-exchange.
 Chỉnh ở đây, không cần sửa code logic.
 """
 
-# Danh sách coin cần quét (dùng symbol chuẩn kiểu BASE/QUOTE, hệ thống tự map sang format từng sàn)
+# Danh sách dự phòng khi không dùng discovery từ Binance.
 SYMBOLS = [
     "BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT",
     "DOGE/USDT", "ADA/USDT", "AVAX/USDT", "LINK/USDT", "SUI/USDT",
     "TON/USDT", "TRX/USDT", "APT/USDT", "ARB/USDT", "OP/USDT",
     "NEAR/USDT", "INJ/USDT", "SEI/USDT", "TIA/USDT", "WIF/USDT",
 ]
+
+# Khi bật, main.py lấy toàn bộ cặp spot USDT đang TRADING trên Binance rồi
+# đối chiếu cùng danh sách đó trên các sàn còn lại.
+DISCOVER_BINANCE_SYMBOLS = True
 
 # Sàn nào bật/tắt (để tắt nhanh 1 sàn nếu bị rate-limit/lỗi mạng khi chạy thật)
 ENABLED_EXCHANGES = {
