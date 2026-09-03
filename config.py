@@ -1,77 +1,152 @@
-# -*- coding: utf-8 -*-
 """
-Cấu hình trung tâm cho hệ thống tín hiệu multi-exchange.
-Chỉnh ở đây, không cần sửa code logic.
+config.py
+
+Cau hinh trung tam cho bot_mm_fund. Doc .env, doc weights.json, tien ich ghi JSONL.
+
+Khong dat lenh. Chi bao tin hieu.
 """
+from __future__ import annotations
 
-# Danh sách coin cần quét (dùng symbol chuẩn kiểu BASE/QUOTE, hệ thống tự map sang format từng sàn)
-SYMBOLS = [
-    "BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT",
-    "DOGE/USDT", "ADA/USDT", "AVAX/USDT", "LINK/USDT", "SUI/USDT",
-    "TON/USDT", "TRX/USDT", "APT/USDT", "ARB/USDT", "OP/USDT",
-    "NEAR/USDT", "INJ/USDT", "SEI/USDT", "TIA/USDT", "WIF/USDT",
-]
+import json
+import logging
+import os
+import sys
+import threading
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import List
 
-# Sàn nào bật/tắt (để tắt nhanh 1 sàn nếu bị rate-limit/lỗi mạng khi chạy thật)
-ENABLED_EXCHANGES = {
-    "binance": True,
-    "bybit": True,
-    "okx": True,
-    "bitget": True,
-    "kucoin": True,
-    "mxc": True,
-}
+from dotenv import load_dotenv
 
-# Khung thời gian nến dùng để tính signal
-KLINE_INTERVAL = "5m"
-KLINE_LIMIT = 100          # số nến lấy về (dùng để tính baseline/zscore)
+BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
 
-ORDERBOOK_DEPTH = 50        # số mức giá lấy từ order book mỗi sàn
+_LOG_LOCK = threading.Lock()
 
-# Timeout & retry cho HTTP request tới từng sàn
-HTTP_TIMEOUT_SEC = 8
-HTTP_RETRY = 2
 
-# Số luồng chạy song song (fetch nhiều coin/sàn cùng lúc để đỡ chậm)
-MAX_WORKERS = 12
+def _get_bool(name: str, default: bool) -> bool:
+    val = os.getenv(name)
+    if val is None:
+        return default
+    return val.strip().lower() in ("1", "true", "yes", "on")
 
-# ==== WebSocket real-time (nâng cấp CVD / Taker Ratio / Liquidation lên data thật) ====
-# Bật/tắt tổng: nếu False, hệ thống chạy hoàn toàn bằng REST + công thức proxy như bản trước.
-WS_ENABLED = True
-# Bật/tắt riêng liquidation stream (nặng hơn, không phải sàn nào cũng có public feed ổn định)
-WS_LIQUIDATION_ENABLED = True
-# Thời gian (giây) lắng nghe trade/liquidation stream trước khi tính signal.
-# Cao hơn = data thật chính xác hơn nhưng chạy lâu hơn. 15-30s là hợp lý cho MVP.
-WS_WINDOW_SEC = 20
-# Timeout kết nối WebSocket ban đầu (giây)
-WS_CONNECT_TIMEOUT_SEC = 8
 
-# ==== Trọng số các nhóm signal khi tính điểm tổng (0-1, tổng không bắt buộc =1) ====
-SIGNAL_WEIGHTS = {
-    # Order flow (per-exchange, lấy trung bình/đồng thuận giữa các sàn)
-    "orderbook_imbalance": 1.0,
-    "cvd_approx": 1.0,
-    "volume_zscore": 1.2,
-    "vwap_deviation": 0.8,
-    "spread_depth_compression": 0.6,
-    "large_trade_tape": 0.7,          # best-effort, dùng volume nến lớn bất thường làm proxy
-    "taker_ratio_extreme": 1.0,
+def _get_int(name: str, default: int) -> int:
+    val = os.getenv(name)
+    try:
+        return int(val) if val not in (None, "") else default
+    except ValueError:
+        return default
 
-    # Cross-exchange (trọng số cao nhất vì khó fake)
-    "cross_exchange_volume_surge": 1.8,
-    "cross_exchange_price_divergence": 1.3,
-    "cross_exchange_ob_imbalance": 1.5,
 
-    # Futures (chỉ Binance/Bybit/OKX chuẩn nhất, các sàn khác best-effort)
-    "funding_oi_divergence": 1.4,
-    "long_short_ratio_extreme": 0.9,
-    "basis_spread": 1.0,
-    "oi_surge_price_flat": 1.3,
-    "liquidation_cluster_estimate": 1.1,
-}
+def _get_float(name: str, default: float) -> float:
+    val = os.getenv(name)
+    try:
+        return float(val) if val not in (None, "") else default
+    except ValueError:
+        return default
 
-# Ngưỡng để quyết định nhãn PUMP / DUMP / NEUTRAL trên điểm tổng đã chuẩn hoá (-100..100)
-SCORE_THRESHOLD_PUMP = 35
-SCORE_THRESHOLD_DUMP = -35
 
-TOP_N_RESULTS = 15
+def _get_list(name: str, default: List[str]) -> List[str]:
+    val = os.getenv(name)
+    if not val:
+        return default
+    return [x.strip().upper() for x in val.split(",") if x.strip()]
+
+
+@dataclass
+class AppConfig:
+    telegram_bot_token: str = field(default_factory=lambda: os.getenv("TELEGRAM_BOT_TOKEN", ""))
+    telegram_chat_id: str = field(default_factory=lambda: os.getenv("TELEGRAM_CHAT_ID", ""))
+    core_symbols: List[str] = field(default_factory=lambda: _get_list(
+        "CORE_SYMBOLS", ["BTCUSDT", "ETHUSDT", "SOLUSDT"]))
+    contract_type: str = field(default_factory=lambda: os.getenv("CONTRACT_TYPE", "PERPETUAL"))
+    quote_asset: str = field(default_factory=lambda: os.getenv("QUOTE_ASSET", "USDT"))
+    coinstrong_default: bool = field(default_factory=lambda: _get_bool("COINSTRONG", False))
+    scan_limit_off: int = field(default_factory=lambda: _get_int("SCAN_LIMIT_OFF", 25))
+    scan_limit_on: int = field(default_factory=lambda: _get_int("SCAN_LIMIT_ON", 200))
+    min_quote_volume: float = field(default_factory=lambda: _get_float("MIN_QUOTE_VOLUME", 20_000_000))
+    min_hot_change_pct: float = field(default_factory=lambda: _get_float("MIN_HOT_CHANGE_PCT", 3.0))
+    universe_refresh_seconds: int = field(default_factory=lambda: _get_int("UNIVERSE_REFRESH_SECONDS", 60))
+    exchanges: List[str] = field(default_factory=lambda: _get_list(
+        "EXCHANGES", ["BINANCE", "OKX", "BYBIT", "BINGX", "KUCOIN", "BITGET", "MEXC"]))
+
+    # --- Full-model-for-all-pairs ---
+    full_data_all: bool = field(default_factory=lambda: _get_bool("FULL_DATA_ALL", True))
+    cross_exchange_all: bool = field(default_factory=lambda: _get_bool("CROSS_EXCHANGE_ALL", False))
+    # FIX: field nay truoc day bi thieu -> AttributeError 'AppConfig' object has no
+    # attribute 'cross_exchange_timeout' moi vong quet cho CORE_SYMBOLS (BTC/ETH/SOL).
+    # Timeout (giay) cho tung request cross-exchange (OKX/Bybit/BingX/KuCoin/Bitget/MEXC).
+    cross_exchange_timeout: float = field(default_factory=lambda: _get_float("CROSS_EXCHANGE_TIMEOUT", 3.0))
+    ws_cover_all: bool = field(default_factory=lambda: _get_bool("WS_COVER_ALL", True))
+    ws_chunk_size: int = field(default_factory=lambda: _get_int("WS_CHUNK_SIZE", 40))
+    max_workers: int = field(default_factory=lambda: _get_int("MAX_WORKERS", 12))
+
+    # Ngan sach weight/phut, de duoi gioi han that cua Binance Futures (2400/phut/IP)
+    weight_budget_per_min: int = field(default_factory=lambda: _get_int("WEIGHT_BUDGET_PER_MIN", 2000))
+
+    funding_cache_seconds: int = field(default_factory=lambda: _get_int("FUNDING_CACHE_SECONDS", 120))
+    oi_cache_seconds: int = field(default_factory=lambda: _get_int("OI_CACHE_SECONDS", 60))
+    lsr_cache_seconds: int = field(default_factory=lambda: _get_int("LSR_CACHE_SECONDS", 120))
+    htf_1h_cache_seconds: int = field(default_factory=lambda: _get_int("HTF_1H_CACHE_SECONDS", 180))
+    htf_4h_cache_seconds: int = field(default_factory=lambda: _get_int("HTF_4H_CACHE_SECONDS", 600))
+
+    poll_seconds: float = field(default_factory=lambda: _get_float("POLL_SECONDS", 25))
+    threshold: float = field(default_factory=lambda: _get_float("THRESHOLD", 65))
+    use_futures: bool = field(default_factory=lambda: _get_bool("USE_FUTURES", True))
+    alert_cooldown_seconds: int = field(default_factory=lambda: _get_int("ALERT_COOLDOWN_SECONDS", 900))
+    enable_telegram: bool = field(default_factory=lambda: _get_bool("ENABLE_TELEGRAM", True))
+    enable_market_intel_scoring: bool = field(
+        default_factory=lambda: _get_bool("ENABLE_MARKET_INTEL_SCORING", True))
+    min_tf: str = field(default_factory=lambda: os.getenv("MIN_TF", "15m"))
+    require_1h_align: bool = field(default_factory=lambda: _get_bool("REQUIRE_1H_ALIGN", True))
+    require_4h_align: bool = field(default_factory=lambda: _get_bool("REQUIRE_4H_ALIGN", True))
+
+    log_path: str = field(default_factory=lambda: os.getenv("LOG_PATH", "logs/signals.jsonl"))
+    feature_log_path: str = field(default_factory=lambda: os.getenv("FEATURE_LOG_PATH", "logs/features.jsonl"))
+
+    depth_levels: int = field(default_factory=lambda: _get_int("DEPTH_LEVELS", 20))
+    tape_window_seconds: int = field(default_factory=lambda: _get_int("TAPE_WINDOW_SECONDS", 14400))
+    large_print_quantile: float = field(default_factory=lambda: _get_float("LARGE_PRINT_QUANTILE", 0.995))
+    min_large_print_usd: float = field(default_factory=lambda: _get_float("MIN_LARGE_PRINT_USD", 50000))
+    book_persist_ms: int = field(default_factory=lambda: _get_int("BOOK_PERSIST_MS", 1000))
+    profile_tick_buckets: int = field(default_factory=lambda: _get_int("PROFILE_TICK_BUCKETS", 40))
+    signal_ttl_seconds: int = field(default_factory=lambda: _get_int("SIGNAL_TTL_SECONDS", 2400))
+
+    def resolve_path(self, rel: str) -> Path:
+        p = Path(rel)
+        if not p.is_absolute():
+            p = BASE_DIR / p
+        p.parent.mkdir(parents=True, exist_ok=True)
+        return p
+
+
+def load_weights(path: str = None) -> dict:
+    p = Path(path) if path else (BASE_DIR / "weights.json")
+    with open(p, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def append_jsonl(path, obj: dict) -> None:
+    """Ghi 1 dong JSON vao file, tao thu muc neu chua co. Thread-safe."""
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(obj, ensure_ascii=False, default=str)
+    with _LOG_LOCK:
+        with open(p, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+
+
+def get_logger(name: str) -> logging.Logger:
+    logger = logging.getLogger(name)
+    if not logger.handlers:
+        # QUAN TRONG: StreamHandler() khong truyen stream se mac dinh ghi ra
+        # stderr -> cac nen tang log nhu Railway se gan severity=error cho
+        # MOI dong log (ke ca INFO binh thuong). Ep ghi ra stdout de log
+        # INFO hien thi dung muc INFO.
+        handler = logging.StreamHandler(stream=sys.stdout)
+        fmt = logging.Formatter("%(asctime)s | %(levelname)-7s | %(name)s | %(message)s")
+        handler.setFormatter(fmt)
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+    return logger
