@@ -91,8 +91,8 @@ TOP_N_RESULTS = 15
 import os  # noqa: E402
 
 TELEGRAM_ENABLED = True
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+TELEGRAM_BOT_TOKEN = os.environ.get("8801989024:AAFCb1XEbrQZLRSOuLKiIGDt5BKCh2f19qY", "")
+TELEGRAM_CHAT_ID = os.environ.get("1716965583", "")
 
 # True: chỉ gửi coin có nhãn PUMP/DUMP (điểm vượt ngưỡng) — khuyên dùng, đỡ spam.
 # False: gửi luôn cả bảng xếp hạng top N mỗi lần chạy, kể cả NEUTRAL.
